@@ -1,0 +1,41 @@
+This folder contains the split driver source code for the tolapai crypto engine. The source code listing is as follows:
+
+
+backend   		dom0 backend driver
+backend/wrapper_lib  	wrapper library for the backend
+frontend  		domu frontend driver
+frontend/wrapper_lib	wrapper library for the frontend
+
+
+Steps to use the driver:
+
+1. Extract source to /opt/src/split_driver
+
+2. Set environment variables
+ 	export TOLAPAI_ROOT=/opt/src/split_driver
+	export TOLAPAI_BUILD_OUTPUT=/opt/src/split_driver/build
+	export KERNEL_SOURCE_ROOT=/lib/modules/`uname -r`/build
+
+3. make each of the above mentioned source directories
+
+4. Execute backend driver
+	insmod /opt/src/split_driver/build/backend/wrapper.ko
+	insmod /opt/src/split_driver/build/frontend/ixpback.ko
+
+5. Execute frontend driver in domu
+	insmod /opt/src/split_driver/build/frontend/wrapper.ko
+	insmod /opt/src/split_driver/build/frontend/ixpfront.ko
+
+6. Intialize xenstore in dom0
+	sh /opt/src/split_driver/build/backend/xenstore_script.sh ixp <domid of domu>
+
+	The ixp device should have now moved to connected state. 
+
+7. Test sample application in domu.
+	cd /opt/src/split_driver/sample_app
+	make
+	insmod cpa_cipher_perf.ko
+
+	verify the output from dmesg | tail.
+
+
