@@ -1,0 +1,276 @@
+diff -crB /home/venkat/Desktop/Security.L.1.0.3-98/Embedded/src/GbE/iegbe_main.c EP805XXX_debug/Embedded/src/GbE/iegbe_main.c
+*** /home/venkat/Desktop/Security.L.1.0.3-98/Embedded/src/GbE/iegbe_main.c	2009-09-09 16:21:04.000000000 -0400
+--- EP805XXX_debug/Embedded/src/GbE/iegbe_main.c	2010-02-26 17:34:27.000000000 -0500
+***************
+*** 741,746 ****
+--- 741,747 ----
+      struct net_device *netdev;
+      struct iegbe_adapter *adapter;
+  	struct iegbe_hw *hw;
++     struct net_device_ops *netdevops;
+  
+  	static int cards_found = 0;
+      int i, err, pci_using_dac;
+***************
+*** 782,788 ****
+  	if (!netdev)
+          goto err_alloc_etherdev;
+  
+! 	SET_NETDEV_DEV(netdev, &pdev->dev);
+  
+      pci_set_drvdata(pdev, netdev);
+      adapter = netdev_priv(netdev);
+--- 783,795 ----
+  	if (!netdev)
+          goto err_alloc_etherdev;
+  
+!    netdevops = NULL;
+!    netdevops = kmalloc(sizeof(struct net_device_ops), GFP_KERNEL);
+!    if(!netdevops)
+! 	goto err_alloc_etherdev;
+! 
+!     memset(netdevops, 0, sizeof(struct net_device_ops));
+!     SET_NETDEV_DEV(netdev, &pdev->dev);
+  
+      pci_set_drvdata(pdev, netdev);
+      adapter = netdev_priv(netdev);
+***************
+*** 800,823 ****
+  	if (!hw->hw_addr)
+          goto err_ioremap;
+  
+!     netdev->open = &iegbe_open;
+!     netdev->stop = &iegbe_close;
+!     netdev->hard_start_xmit = &iegbe_xmit_frame;
+!     netdev->get_stats = &iegbe_get_stats;
+! 	netdev->set_rx_mode = &iegbe_set_rx_mode;
+! 	netdev->set_mac_address = &iegbe_set_mac;
+!     netdev->change_mtu = &iegbe_change_mtu;
+!     netdev->do_ioctl = &iegbe_ioctl;
+! 	set_ethtool_ops(netdev);
+!     netdev->tx_timeout = &iegbe_tx_timeout;
+! 	netdev->watchdog_timeo = 5 * HZ;
+! 	netif_napi_add(netdev, &adapter->napi, iegbe_clean, 64);
+!     netdev->vlan_rx_register = iegbe_vlan_rx_register;
+!     netdev->vlan_rx_add_vid = iegbe_vlan_rx_add_vid;
+!     netdev->vlan_rx_kill_vid = iegbe_vlan_rx_kill_vid;
+  #ifdef CONFIG_NET_POLL_CONTROLLER
+!     netdev->poll_controller = iegbe_netpoll;
+  #endif
+  	strncpy(netdev->name, pci_name(pdev), sizeof(netdev->name) - 1);
+  
+  
+--- 807,833 ----
+  	if (!hw->hw_addr)
+          goto err_ioremap;
+  
+!     netdevops->ndo_open = &iegbe_open;
+!     netdevops->ndo_stop = &iegbe_close;
+!     netdevops->ndo_start_xmit = &iegbe_xmit_frame;
+!     netdevops->ndo_get_stats = &iegbe_get_stats;
+!     netdevops->ndo_set_rx_mode = &iegbe_set_rx_mode;
+!     netdevops->ndo_set_mac_address = &iegbe_set_mac;
+!     netdevops->ndo_change_mtu = &iegbe_change_mtu;
+!     netdevops->ndo_do_ioctl = &iegbe_ioctl;
+!     set_ethtool_ops(netdev);
+!     netdevops->ndo_tx_timeout = &iegbe_tx_timeout;
+!     netdev->watchdog_timeo = 5 * HZ;
+!     netif_napi_add(netdev, &adapter->napi, iegbe_clean, 64);
+!     netdevops->ndo_vlan_rx_register = iegbe_vlan_rx_register;
+!     netdevops->ndo_vlan_rx_add_vid = iegbe_vlan_rx_add_vid;
+!     netdevops->ndo_vlan_rx_kill_vid = iegbe_vlan_rx_kill_vid;
+  #ifdef CONFIG_NET_POLL_CONTROLLER
+!     netdevops->ndo_poll_controller = iegbe_netpoll;
+  #endif
++     
++     netdev->netdev_ops = netdevops;
++ 
+  	strncpy(netdev->name, pci_name(pdev), sizeof(netdev->name) - 1);
+  
+  
+***************
+*** 1105,1111 ****
+  	}
+  
+  	for (i = 0; i < adapter->num_rx_queues; i++) {
+! 		adapter->polling_netdev[i].priv = adapter;
+  		dev_hold(&adapter->polling_netdev[i]);
+  		set_bit(__LINK_STATE_START, &adapter->polling_netdev[i].state);
+  	}
+--- 1115,1121 ----
+  	}
+  
+  	for (i = 0; i < adapter->num_rx_queues; i++) {
+! 		*((struct iegbe_adapter *)netdev_priv(adapter->polling_netdev+i)) = *adapter;
+  		dev_hold(&adapter->polling_netdev[i]);
+  		set_bit(__LINK_STATE_START, &adapter->polling_netdev[i].state);
+  	}
+***************
+*** 2180,2185 ****
+--- 2190,2196 ----
+  	struct iegbe_hw *hw = &adapter->hw;
+  	struct dev_addr_list *uc_ptr;
+  	struct dev_addr_list *mc_ptr;
++ 	struct netdev_hw_addr *ha;
+  	u32 rctl;
+  	u32 hash_value;
+  	int i, rar_entries = E1000_RAR_ENTRIES;
+***************
+*** 2205,2215 ****
+  	}
+  
+  	uc_ptr = NULL;
+! 	if (netdev->uc_count > rar_entries - 1) {
+  		rctl |= E1000_RCTL_UPE;
+  	} else if (!(netdev->flags & IFF_PROMISC)) {
+  		rctl &= ~E1000_RCTL_UPE;
+! 		uc_ptr = netdev->uc_list;
+  	}
+  
+  	E1000_WRITE_REG(&adapter->hw, RCTL, rctl);
+--- 2216,2228 ----
+  	}
+  
+  	uc_ptr = NULL;
+! 	ha = NULL;
+! 	if (netdev->uc.count > rar_entries - 1) {
+  		rctl |= E1000_RCTL_UPE;
+  	} else if (!(netdev->flags & IFF_PROMISC)) {
+  		rctl &= ~E1000_RCTL_UPE;
+! 		//uc_ptr = netdev->uc.list;
+! 		ha = list_entry((netdev->uc.list.next), struct netdev_hw_addr, list); 
+  	}
+  
+  	E1000_WRITE_REG(&adapter->hw, RCTL, rctl);
+***************
+*** 2228,2238 ****
+  	 * -- with 82571 controllers only 0-13 entries are filled here
+  	 */
+  	mc_ptr = netdev->mc_list;
+  
+! 	for (i = 1; i < rar_entries; i++) {
+! 		if (uc_ptr) {
+! 			iegbe_rar_set(hw, uc_ptr->da_addr, i);
+! 			uc_ptr = uc_ptr->next;
+  		} else if (mc_ptr) {		
+  			iegbe_rar_set(hw, mc_ptr->da_addr, i);
+  			mc_ptr = mc_ptr->next;
+--- 2241,2252 ----
+  	 * -- with 82571 controllers only 0-13 entries are filled here
+  	 */
+  	mc_ptr = netdev->mc_list;
++ 	
+  
+! 	for (i = 1; i < rar_entries; i++) {		
+! 		if (ha && (&ha->list != &netdev->uc.list)) {
+! 			iegbe_rar_set(hw, ha->addr, i);
+! 			ha = list_entry(ha->list.next, struct netdev_hw_addr, list);
+  		} else if (mc_ptr) {		
+  			iegbe_rar_set(hw, mc_ptr->da_addr, i);
+  			mc_ptr = mc_ptr->next;
+***************
+*** 2243,2249 ****
+  			E1000_WRITE_FLUSH(&adapter->hw);
+  		}
+  	}
+! 	WARN_ON(uc_ptr != NULL);
+  
+  	/* clear the old settings from the multicast hash table */
+  
+--- 2257,2263 ----
+  			E1000_WRITE_FLUSH(&adapter->hw);
+  		}
+  	}
+! 	//WARN_ON(uc_ptr != NULL);
+  
+  	/* clear the old settings from the multicast hash table */
+  
+***************
+*** 3458,3469 ****
+  	    printk("Critical error! ICR = 0x%x\n", icr);
+  	    return IRQ_HANDLED;
+  	}
+! 	if (likely(netif_rx_schedule_prep(netdev, &adapter->napi))) {
+  		adapter->total_tx_bytes = 0;
+  		adapter->total_tx_packets = 0;
+  		adapter->total_rx_bytes = 0;
+  		adapter->total_rx_packets = 0;
+! 		__netif_rx_schedule(netdev, &adapter->napi);
+  	} else
+  		iegbe_irq_enable(adapter);
+  
+--- 3472,3483 ----
+  	    printk("Critical error! ICR = 0x%x\n", icr);
+  	    return IRQ_HANDLED;
+  	}
+! 	if (likely(napi_schedule_prep(&adapter->napi))) {
+  		adapter->total_tx_bytes = 0;
+  		adapter->total_tx_packets = 0;
+  		adapter->total_rx_bytes = 0;
+  		adapter->total_rx_packets = 0;
+! 		__napi_schedule(&adapter->napi);
+  	} else
+  		iegbe_irq_enable(adapter);
+  
+***************
+*** 3520,3531 ****
+  		E1000_WRITE_REG(&adapter->hw, IMC, ~0);
+  		E1000_WRITE_FLUSH(&adapter->hw);
+  	}
+! 	if (likely(netif_rx_schedule_prep(netdev, &adapter->napi))) {
+  		adapter->total_tx_bytes = 0;
+  		adapter->total_tx_packets = 0;
+  		adapter->total_rx_bytes = 0;
+  		adapter->total_rx_packets = 0;
+! 		__netif_rx_schedule(netdev, &adapter->napi);
+  	} else
+  		/* this really should not happen! if it does it is basically a
+  		 * bug, but not a hard error, so enable ints and continue */
+--- 3534,3545 ----
+  		E1000_WRITE_REG(&adapter->hw, IMC, ~0);
+  		E1000_WRITE_FLUSH(&adapter->hw);
+  	}
+! 	if (likely(napi_schedule_prep(&adapter->napi))) {
+  		adapter->total_tx_bytes = 0;
+  		adapter->total_tx_packets = 0;
+  		adapter->total_rx_bytes = 0;
+  		adapter->total_rx_packets = 0;
+! 		napi_schedule(&adapter->napi);
+  	} else
+  		/* this really should not happen! if it does it is basically a
+  		 * bug, but not a hard error, so enable ints and continue */
+***************
+*** 3545,3551 ****
+  	int tx_cleaned = 0, work_done = 0;
+  
+  	/* Must NOT use netdev_priv macro here. */
+! 	adapter = poll_dev->priv;
+  
+  	/* iegbe_clean is called per-cpu.  This lock protects
+  	 * tx_ring[0] from being cleaned by multiple cpus
+--- 3559,3565 ----
+  	int tx_cleaned = 0, work_done = 0;
+  
+  	/* Must NOT use netdev_priv macro here. */
+! 	adapter = netdev_priv(poll_dev);
+  
+  	/* iegbe_clean is called per-cpu.  This lock protects
+  	 * tx_ring[0] from being cleaned by multiple cpus
+***************
+*** 3567,3573 ****
+  	if (work_done < budget) {
+  		if (likely(adapter->itr_setting & 3))
+  			iegbe_set_itr(adapter);
+! 		netif_rx_complete(poll_dev, napi);
+  		iegbe_irq_enable(adapter);
+  	}
+  
+--- 3581,3587 ----
+  	if (work_done < budget) {
+  		if (likely(adapter->itr_setting & 3))
+  			iegbe_set_itr(adapter);
+! 		napi_complete(napi);
+  		iegbe_irq_enable(adapter);
+  	}
+  
+
